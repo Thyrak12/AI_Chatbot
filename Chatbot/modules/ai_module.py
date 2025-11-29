@@ -1,23 +1,22 @@
-# modules/ai_module.py
-import requests
 import os
+from dotenv import load_dotenv
+from google import genai
 
-# Example for Google Gemini
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent"
+load_dotenv()  # must be at the very top
 
-def get_ai_response(user_input: str):
-    headers = {"Content-Type": "application/json"}
-    params = {"key": GEMINI_API_KEY}
+def ask_ai(prompt):
+    api_key = os.getenv("GEMINI_API_KEY")
 
-    data = {
-        "contents": [{"parts": [{"text": user_input}]}]
-    }
+    if not api_key:
+        return "AI Error: GEMINI_API_KEY missing in environment variables."
 
-    response = requests.post(GEMINI_ENDPOINT, headers=headers, params=params, json=data)
+    client = genai.Client(api_key=api_key)
 
-    if response.status_code == 200:
-        result = response.json()
-        return result["candidates"][0]["content"]["parts"][0]["text"]
-    else:
-        return "Sorry, I’m having trouble generating a response right now."
+    try:
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt
+        )
+        return response.text
+    except Exception as e:
+        return f"AI ERROR: {str(e)}"

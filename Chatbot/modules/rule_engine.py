@@ -1,16 +1,45 @@
 # modules/rule_engine.py
-def get_rule_based_response(user_input: str):
-    rules = {
-        "hello": "Hi there! How can I help you today?",
-        "menu": "Our restaurant offers a variety of dishes — would you like to see the full menu?",
-        "hours": "We’re open from 9 AM to 10 PM daily!",
-        "location": "We are located at Street 123, Phnom Penh.",
-        "contact": "You can reach us at +855 12 345 678."
-    }
+from modules.ai_module import ask_ai
+from database.mysql_config import get_db
 
-    # Lowercase input for simple matching
-    for keyword, response in rules.items():
-        if keyword in user_input.lower():
-            return response
+def get_menu_from_db():
+    """
+    Pull menu list from MySQL
+    """
+    db = get_db()
+    cursor = db.cursor()
 
-    return None  # No rule matched → fallback to AI
+    cursor.execute("SELECT name, price FROM menu;")
+    rows = cursor.fetchall()
+
+    menu_text = "📌 Menu List:\n"
+    for item, price in rows:
+        menu_text += f"- {item}: ${price}\n"
+
+    cursor.close()
+    db.close()
+
+    return menu_text
+
+
+def handle_rules(user_message):
+    """
+    Checks rules first. If no rules match → AI answers.
+    """
+
+    msg = user_message.lower()
+
+    # Rule 1: User asks for menu
+    if "menu" in msg:
+        return get_menu_from_db()
+
+    # Rule 2: User asks for opening hours
+    if "open" in msg or "time" in msg:
+        return "We are open from 8AM to 10PM every day!"
+
+    # Rule 3: User asks location
+    if "location" in msg or "where" in msg:
+        return "We are located at Phnom Penh, Cambodia."
+
+    # ❌ If none matched → Gemini AI handles the answer
+    return ask_ai(user_message)

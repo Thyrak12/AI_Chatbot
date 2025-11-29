@@ -1,23 +1,21 @@
+# app.py
 from flask import Flask, request, jsonify
-from modules.rule_engine import get_rule_based_response
-from modules.ai_module import get_ai_response
+from flask_cors import CORS
+from modules.rule_engine import handle_rules
+from dotenv import load_dotenv
+load_dotenv()
 
 app = Flask(__name__)
+CORS(app)
 
-@app.route("/api/chat", methods=["POST"])
+@app.route("/chat", methods=["POST"])
 def chat():
-    user_input = request.json.get("message", "")
+    user_message = request.json.get("message", "")
 
-    # 1. Check rule engine
-    rule_response = get_rule_based_response(user_input)
-    if rule_response:
-        response = rule_response
-    else:
-        # 2. Fallback to AI
-        response = get_ai_response(user_input)
+    bot_reply = handle_rules(user_message)
 
-    # 3. Return response
-    return jsonify({"response": response})
+    return jsonify({"response": bot_reply})
+
 
 if __name__ == "__main__":
     app.run(debug=True)
