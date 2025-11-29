@@ -2,17 +2,18 @@
   "name": "backend",
   "version": "1.0.0",
   "main": "server.js",
-   "type": "module",
+  "type": "module",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node server.js",
-    "seed:products": "node src/seeders/productSeeder.js"
+    "seed:full": "node src/seeders/fullSeeder.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@faker-js/faker": "^10.1.0",
     "@google/genai": "^1.30.0",
     "@google/generative-ai": "^0.24.1",
     "axios": "^1.13.2",
@@ -20,8 +21,10 @@
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
-    "mongoose": "^8.20.0",
-    "mysql2": "^3.15.3"
+    "mongoose": "^8.20.1",
+    "mysql2": "^3.15.3",
+    "socket.io": "^4.8.1",
+    "uuid": "^13.0.0"
   },
   "devDependencies": {
     "nodemon": "^3.1.11"
