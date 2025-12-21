@@ -1,113 +1,181 @@
 import React, { useState, useEffect, useRef } from "react";
-import { getSession, sendMessage as apiSendMessage } from "../api/chatApi";
-import ChatBoxUI from "./ChatBoxUI";
+import { createSession, sendMessage as apiSendMessage } from "../api/chatApi";
+import "./ChatBox.css";
 
 function ChatBox() {
   const [message, setMessage] = useState("");
-  const [chat, setChat] = useState([]);
+  const [messages, setMessages] = useState([]);
+  const [sessionId, setSessionId] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [lastError, setLastError] = useState(null);
-  const chatRef = useRef(null);
+  const [connected, setConnected] = useState(false);
+  const messagesEndRef = useRef(null);
 
-  const sendMessage = async () => {
-    if (!message.trim()) return;
-
-    // Add user message to chat
-    setChat(prev => [...prev, { sender: "user", text: message }]);
-    setLoading(true);
-    setLastError(null);
-    // Ensure we have (or reuse) a sessionId stored in localStorage
-    const existing = localStorage.getItem("chat_session_id");
-
-    try {
-      console.log("Sending message to API:", message, "sessionId:", existing);
-      const data = await apiSendMessage(message, existing);
-      console.log("API response:", data);
-
-      // Persist the sessionId returned by server
-      if (data.sessionId) localStorage.setItem("chat_session_id", data.sessionId);
-
-      // Add AI response to chat, preserving structured `data` payload when present
-      setChat(prev => [...prev, { sender: "bot", text: data.response || data.reply || '', data: data.data || (data.payload || data) }]);
-      setMessage("");
-    } catch (err) {
-      console.error("sendMessage error:", err);
-      setLastError(err?.message || String(err));
-      setChat(prev => [...prev, { sender: "bot", text: "Sorry — I couldn't reach the server. Please check your connection or try again." }]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Scroll chat to bottom when messages change
+  // Initialize session on mount
   useEffect(() => {
-    if (chatRef.current) {
-      chatRef.current.scrollTop = chatRef.current.scrollHeight;
-    }
-  }, [chat]);
-
-  // Ensure we have a sessionId on mount
-  useEffect(() => {
-    const ensureSession = async () => {
-      const existing = localStorage.getItem("chat_session_id");
-      if (existing) return;
-
+    const initSession = async () => {
       try {
-        const data = await getSession();
-        if (data.sessionId) localStorage.setItem("chat_session_id", data.sessionId);
+        const data = await createSession();
+        if (data.sessionId) {
+          setSessionId(data.sessionId);
+          setConnected(true);
+          console.log("Session created:", data.sessionId);
+        }
       } catch (err) {
-        console.warn("Could not create session:", err);
+        console.error("Failed to create session:", err);
+        setConnected(false);
       }
     };
-
-    ensureSession();
+    initSession();
   }, []);
 
-  const resetSession = async () => {
-    localStorage.removeItem("chat_session_id");
-    try {
-      const data = await getSession();
-      if (data.sessionId) localStorage.setItem("chat_session_id", data.sessionId);
-      setChat([]);
-    } catch (err) {
-      console.warn("Could not reset session:", err);
-    }
-  };
+  // Scroll to bottom when new messages arrive
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
 
-  // Quick action: set message and send immediately
-  const handleQuickAction = async (query) => {
-    if (!query.trim()) return;
-    setChat((prev) => [...prev, { sender: "user", text: query }]);
+  const sendMessage = async (e) => {
+    e?.preventDefault?.();
+    if (!message.trim() || !sessionId || loading) return;
+
+    const userMessage = message;
+    setMessage("");
+
+    // Add user message to UI immediately
+    setMessages((prev) => [...prev, { role: "user", content: userMessage }]);
     setLoading(true);
-    const existing = localStorage.getItem("chat_session_id");
-    setLastError(null);
+
     try {
-      console.log("Quick action request:", query, "sessionId:", existing);
-      const data = await apiSendMessage(query, existing);
-      console.log("Quick action response:", data);
-      if (data.sessionId) localStorage.setItem("chat_session_id", data.sessionId);
-      setChat((prev) => [...prev, { sender: "bot", text: data.response || data.reply || '', data: data.data || (data.payload || data) }]);
+      const response = await apiSendMessage(userMessage, sessionId);
+      setMessages((prev) => [...prev, { role: "assistant", content: response.response }]);
     } catch (err) {
-      console.error("handleQuickAction error:", err);
-      setLastError(err?.message || String(err));
-      setChat((prev) => [...prev, { sender: "bot", text: "Sorry — failed to fetch suggestions. Try again." }]);
+      console.error("Send message error:", err);
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: "Sorry, I couldn't process your message. Please try again." }
+      ]);
     } finally {
       setLoading(false);
     }
+  };
+
+  const quickQueries = [
+    "Show menu items under $20",
+    "Find romantic restaurants",
+    "I have $10, recommend something",
+    "What restaurants are available?"
+  ];
+
+  const handleQuickQuery = (query) => {
+    setMessage(query);
   };
 
   return (
-    <ChatBoxUI
-      chat={chat}
-      lastError={lastError}
-      message={message}
-      setMessage={setMessage}
-      sendMessage={sendMessage}
-      resetSession={resetSession}
-      loading={loading}
-      chatRef={chatRef}
-      onQuickAction={handleQuickAction}
-    />
+    <div className="chat-container">
+      <div className="chat-header">
+        <div className="header-content">
+          <h1>🍽️ Restaurant Chatbot</h1>
+          <p>Find restaurants, menus & promotions</p>
+        </div>
+        <div className={`status-indicator ${connected ? "connected" : "disconnected"}`}>
+          {connected ? "●" : "○"} {connected ? "Connected" : "Connecting..."}
+        </div>
+      </div>
+
+      <div className="chat-messages" ref={messagesEndRef}>
+        {messages.length === 0 ? (
+          <div className="empty-state">
+            <div className="empty-icon">🤖</div>
+            <h2>Welcome to Restaurant Chatbot</h2>
+            <p>Ask me anything about restaurants, menus, or promotions!</p>
+            <div className="quick-queries">
+              {quickQueries.map((query, idx) => (
+                <button
+                  key={idx}
+                  className="quick-query-btn"
+                  onClick={() => handleQuickQuery(query)}
+                >
+                  {query}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          messages.map((msg, idx) => {
+            const renderContent = () => {
+              // Attempt to format JSON-like responses for better display
+              if (msg.role === "assistant" && typeof msg.content === "string") {
+                try {
+                  const data = JSON.parse(msg.content);
+                  // Handle restaurant list formatting
+                  if (Array.isArray(data?.results) && data.target === "restaurant") {
+                    return (
+                      <div className="result-cards">
+                        {data.results.map((r, i) => (
+                          <div key={i} className="card">
+                            <div className="card-title">{r.name || "Unknown"}</div>
+                            <div className="card-meta">
+                              {(r.cuisine || r.category) && <span>{r.cuisine || r.category}</span>}
+                              {r.priceTier && <span>• {r.priceTier}</span>}
+                            </div>
+                            {(r.ambience && r.ambience.length > 0) && (
+                              <div className="card-tags">
+                                {r.ambience.slice(0, 5).map((tag, ti) => (
+                                  <span key={ti} className="tag">{tag}</span>
+                                ))}
+                              </div>
+                            )}
+                            {r.address && <div className="card-desc">{r.address}</div>}
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  }
+                } catch (_) {
+                  // not JSON, show as plain text
+                }
+              }
+              return msg.content;
+            };
+            return (
+              <div key={idx} className={`message ${msg.role}`}>
+                <div className="message-avatar">{msg.role === "user" ? "👤" : "🤖"}</div>
+                <div className="message-content">{renderContent()}</div>
+              </div>
+            );
+          })
+        )}
+        {loading && (
+          <div className="message assistant">
+            <div className="message-avatar">🤖</div>
+            <div className="message-content">
+              <div className="typing-indicator">
+                <span></span>
+                <span></span>
+                <span></span>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <form className="chat-input-form" onSubmit={sendMessage}>
+        <input
+          type="text"
+          className="chat-input"
+          placeholder="Ask about restaurants, menus, or promotions..."
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+          disabled={!connected || loading}
+        />
+        <button
+          type="submit"
+          className="send-button"
+          disabled={!connected || loading || !message.trim()}
+        >
+          {loading ? "..." : "Send"}
+        </button>
+      </form>
+    </div>
   );
 }
 

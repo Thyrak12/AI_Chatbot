@@ -11,54 +11,60 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-connectDB(); // attempt DB connection (doesn't block server start)
+// Connect to MongoDB
+connectDB();
 
+// REST API routes
 app.use('/api', chatRoutes);
 
-// HTTP + Socket.IO server
+// Create HTTP + Socket.IO server
 const httpServer = http.createServer(app);
 const io = new IOServer(httpServer, { cors: { origin: '*' } });
 
+// Session ID generator
 function generateSessionId() {
-	try {
-		if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
-	} catch (e) {}
-	return crypto.randomBytes(16).toString('hex');
+  try {
+    if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+  } catch (e) { }
+  return crypto.randomBytes(16).toString('hex');
 }
 
+// Socket.IO handlers
 io.on('connection', (socket) => {
-	console.log('Socket connected:', socket.id);
+  console.log('Socket connected:', socket.id);
 
-	socket.on('chat:message', async ({ id, message, sessionId }) => {
-		try {
-			const sid = sessionId || generateSessionId();
-			const reply = await handleChat(message, sid);
-			socket.emit('chat:response', { id, response: reply ?? '', sessionId: sid });
-		} catch (err) {
-			console.error('socket chat:message error:', err);
-			socket.emit('chat:response', { id, error: 'Server error' });
-		}
-	});
+  socket.on('chat:message', async ({ id, message, sessionId }) => {
+    try {
+      if (!message) return socket.emit('chat:response', { id, error: 'Message is required' });
+      const sid = sessionId || generateSessionId();
+      const reply = await handleChat(message, sid);
+      const text = (typeof reply === 'string') ? reply : (reply?.text ?? '');
+      socket.emit('chat:response', { id, response: text, sessionId: sid });
+    } catch (err) {
+      console.error('socket chat:message error:', err);
+      socket.emit('chat:response', { id, error: 'Server error' });
+    }
+  });
 
-	socket.on('session:create', () => {
-		const sessionId = generateSessionId();
-		socket.emit('session:created', { sessionId });
-	});
+  socket.on('session:create', () => {
+    const sessionId = generateSessionId();
+    socket.emit('session:created', { sessionId });
+  });
 
-	socket.on('disconnect', (reason) => {
-		// keep it simple: log and let connections close
-		console.log('Socket disconnected', socket.id, reason);
-	});
+  socket.on('disconnect', (reason) => {
+    console.log('Socket disconnected', socket.id, reason);
+  });
 });
 
+// Start server
 const PORT = process.env.PORT || 5000;
 httpServer.on('error', (err) => {
-	if (err && err.code === 'EADDRINUSE') {
-		console.error(`Port ${PORT} already in use. Is another server running?`);
-	} else {
-		console.error('HTTP server error:', err);
-	}
-	process.exit(1);
+  if (err?.code === 'EADDRINUSE') {
+    console.error(`Port ${PORT} already in use.`);
+  } else {
+    console.error('HTTP server error:', err);
+  }
+  process.exit(1);
 });
 
 httpServer.listen(PORT, () => console.log(`Server running on port ${PORT}`));

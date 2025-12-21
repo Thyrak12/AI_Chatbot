@@ -2,7 +2,7 @@ import mongoose from "mongoose";
 
 const promotionSchema = new mongoose.Schema({
   restaurant: { type: mongoose.Schema.Types.ObjectId, ref: "Restaurant", required: true },
-  menuItem: { type: mongoose.Schema.Types.ObjectId, ref: "Menu", required: false },
+  menu: { type: mongoose.Schema.Types.ObjectId, ref: "Menu", required: false },
   title: { type: String, required: true },
   description: String,
   discountPercent: { type: Number, required: true },

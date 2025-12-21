@@ -2,324 +2,162 @@ import dotenv from "dotenv";
 import { connectDB } from "../config/db.js";
 import { Restaurant } from "../models/restaurant.js";
 import { Menu } from "../models/menu.js";
+import { MenuItem } from "../models/menuItem.js";
 import { Promotion } from "../models/promotion.js";
+import { PriceTierDetail } from "../models/priceTierDetail.js";
+import { OpeningHours } from "../models/openingHours.js";
 import { faker } from '@faker-js/faker';
 
 dotenv.config();
 
-// ----------------------
-// Helper Data & Functions
-// ----------------------
-const AMBIENCES = [
-  "romantic", "cozy", "lively", "quiet",
-  "family-friendly", "casual", "healthy", "noisy"
-];
+const AMBIENCES = ["romantic","cozy","lively","quiet","family-friendly","casual","healthy","noisy"];
+const CUISINES = ["Cafe","Deli","Italian","Mexican","Japanese","Indian","Thai","Mediterranean"];
+const TAGS = ["breakfast","brunch","dinner","vegan","gluten-free","pet-friendly","outdoor","romantic"];
 
-const CUISINES = [
-  "Cafe", "Deli", "Italian", "Mexican",
-  "Japanese", "Indian", "Thai", "Mediterranean"
-];
+function randInt(min, max){ return Math.floor(Math.random()*(max-min+1))+min }
+function pick(arr,n=1){ const out=[]; const copy=[...arr]; for(let i=0;i<n&&copy.length>0;i++){ const idx=Math.floor(Math.random()*copy.length); out.push(copy.splice(idx,1)[0]); } return out }
 
-const TAGS = [
-  "breakfast", "brunch", "dinner", "vegan",
-  "gluten-free", "pet-friendly", "outdoor", "romantic"
-];
-
-function randInt(min, max) {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
+// shift a HH:MM string by minutes offset (positive or negative)
+function shiftTime(hhmm, minutesOffset){
+  const [hh,mm] = hhmm.split(':').map(Number);
+  const total = hh*60 + mm + minutesOffset;
+  const norm = (total + 24*60) % (24*60);
+  const nh = String(Math.floor(norm/60)).padStart(2,'0');
+  const nm = String(norm%60).padStart(2,'0');
+  return `${nh}:${nm}`;
 }
 
-function pick(arr, n = 1) {
-  const out = [];
-  const copy = [...arr];
-  for (let i = 0; i < n && copy.length > 0; i++) {
-    const idx = Math.floor(Math.random() * copy.length);
-    out.push(copy.splice(idx, 1)[0]);
-  }
-  return out;
-}
-
-// ----------------------
-// Main Seeder
-// ----------------------
-async function seedAll() {
-  try {
+async function seedAll(){
+  try{
     await connectDB();
-    console.log("Seeding restaurants (50), menus (300) and promotions (100)...");
+    console.log('Seeding price tiers, restaurants, menus, menu_items and promotions...');
 
-    // Clear previous data
     await Promotion.deleteMany({});
+    await MenuItem.deleteMany({});
     await Menu.deleteMany({});
     await Restaurant.deleteMany({});
+    await OpeningHours.deleteMany({});
+    await PriceTierDetail.deleteMany({});
 
-    // ----------------------
-    // Generate 50 Restaurants
-    // ----------------------
-    const restaurants = [];
-    for (let i = 1; i <= 50; i++) {
-      const ambience = pick(AMBIENCES, randInt(1, 3));
-      const cuisine = CUISINES[randInt(0, CUISINES.length - 1)];
+    const tiers=[
+      { tier:'BUDGET', dishMin:0, dishMax:8, drinkMin:0, drinkMax:4, description:'Budget-friendly meals (cheap bites, street-food style).'},
+      { tier:'MID_RANGE', dishMin:8, dishMax:20, drinkMin:3, drinkMax:8, description:'Affordable mid-range meals.'},
+      { tier:'PREMIUM', dishMin:20, dishMax:50, drinkMin:6, drinkMax:15, description:'Premium casual dining.'},
+      { tier:'LUXURY', dishMin:50, dishMax:999, drinkMin:15, drinkMax:999, description:'High-end dining.'}
+    ];
+    await PriceTierDetail.insertMany(tiers);
 
-      restaurants.push({
-        name: faker.company.name() + (i <= 5 ? ` - ${cuisine}` : ''),
-        type: i % 3 === 0 ? "pub" : i % 3 === 1 ? "cafe" : "deli",
-        address: (faker.address && typeof faker.address.streetAddress === 'function')
-          ? faker.address.streetAddress()
-          : (faker.location && typeof faker.location.streetAddress === 'function')
-            ? faker.location.streetAddress()
-            : `${(faker.location && faker.location.city) ? faker.location.city() : (faker.address && faker.address.city ? faker.address.city() : 'City')}, ${(faker.location && faker.location.country) ? faker.location.country() : (faker.address && faker.address.country ? faker.address.country() : 'Country')}`,
-        location: {
-          lat: 40.71 + Math.random() * 0.04 - 0.02,
-          lng: -74.01 + Math.random() * 0.04 - 0.02
-        },
-        phone: faker.phone.number('+1-###-###-####'),
-        description: faker.lorem.sentence() + ` A ${ambience.join(", ")} place serving ${cuisine}.`,
-        cuisine,
-        openingHours: `${randInt(6, 9)}:00-${randInt(20, 23)}:00`,
-        numTables: randInt(5, 40),
-        vipRooms: randInt(0, 2),
-        hasPrivateRooms: Math.random() > 0.8,
-        ambience
-      });
+    const restaurants=[];
+    // Ensure a realistic distribution across price tiers
+    const tierDistribution = {
+      BUDGET: 12,
+      MID_RANGE: 20,
+      PREMIUM: 12,
+      LUXURY: 6
+    };
+    const tierNames = Object.keys(tierDistribution);
+    let idx = 0;
+    for(const tier of tierNames){
+      const count = tierDistribution[tier];
+      for(let j=0;j<count;j++){
+        idx++;
+        const ambience = pick(AMBIENCES, randInt(1,3));
+        const cuisine = CUISINES[randInt(0,CUISINES.length-1)];
+        // force some romantic ambience on PREMIUM/LUXURY for 'fancy' queries
+        if ((tier === 'PREMIUM' || tier === 'LUXURY') && Math.random() < 0.6 && !ambience.includes('romantic')) ambience.push('romantic');
+        restaurants.push({
+          name: `${faker.company.name()}${j<3?` - ${cuisine}`:''}`,
+          type: j%3===0?'pub':j%3===1?'cafe':'restaurant',
+          address: faker.location.streetAddress ? faker.location.streetAddress() : `${faker.address?.streetAddress?.() || 'Unknown'}`,
+          location:{ lat:40.71+Math.random()*0.04-0.02, lng:-74.01+Math.random()*0.04-0.02 },
+          phone: faker.phone.number ? faker.phone.number('+1-###-###-####') : `+1-555-000-${String(idx).padStart(4,'0')}`,
+          description: `${faker.lorem.sentence()} A ${ambience.join(', ')} place serving ${cuisine}.`,
+          cuisine,
+          hasPrivateRooms: Math.random()>0.85,
+          ambience,
+          priceTier: tier,
+          status:'OPEN', closedUntil:null,
+          category: faker.helpers.arrayElement(['Khmer','BBQ','Café','Pub','Fine Dining','Street Food','Mediterranean','Japanese','Thai']),
+          averageFoodPrice:null, averageDrinkPrice:null
+        });
+      }
     }
-
     const insertedRestaurants = await Restaurant.insertMany(restaurants);
 
     // ----------------------
-    // Generate 300 Menu Items
-    //  - First 90 are guaranteed "budget" (price <= 10)
-    //  - Remaining are random in 1-60 range
+    // Seed opening hours for each restaurant (MON-SUN)
     // ----------------------
-    const menus = [];
-
-    // Budget-friendly menus (roughly 30%)
-    for (let i = 1; i <= 90; i++) {
-      const r = insertedRestaurants[randInt(0, insertedRestaurants.length - 1)];
-      // Generate dish names relevant to the restaurant cuisine/type
-      const cuisine = r.cuisine || '';
-      const category = pick(["drinks", "main", "dessert", "snack"], 1)[0];
-
-      const name = (function makeDishName() {
-        const adjective = faker.word && typeof faker.word.adjective === 'function' ? faker.word.adjective() : faker.commerce.productAdjective();
-        const simple = (base) => `${adjective} ${base}`;
-
-        const dishes = {
-          Italian: {
-            main: ['Margherita Pizza', 'Spaghetti Carbonara', 'Penne Arrabiata', 'Lasagna'],
-            dessert: ['Tiramisu', 'Panna Cotta'],
-            drinks: ['Espresso', 'Limoncello'],
-            snack: ['Bruschetta', 'Focaccia']
-          },
-          Mexican: {
-            main: ['Chicken Tacos', 'Carne Asada Burrito', 'Enchiladas', 'Chiles Rellenos'],
-            dessert: ['Churros', 'Flan'],
-            drinks: ['Horchata', 'Agua Fresca'],
-            snack: ['Elote', 'Quesadilla']
-          },
-          Japanese: {
-            main: ['Sushi Platter', 'Ramen Bowl', 'Teriyaki Chicken', 'Katsu Curry'],
-            dessert: ['Mochi', 'Dorayaki'],
-            drinks: ['Matcha Latte', 'Sake'],
-            snack: ['Gyoza', 'Onigiri']
-          },
-          Indian: {
-            main: ['Butter Chicken', 'Chana Masala', 'Lamb Rogan Josh', 'Biryani'],
-            dessert: ['Gulab Jamun', 'Kheer'],
-            drinks: ['Mango Lassi', 'Masala Chai'],
-            snack: ['Samosa', 'Papad']
-          },
-          Thai: {
-            main: ['Pad Thai', 'Green Curry', 'Tom Yum Soup', 'Massaman Curry'],
-            dessert: ['Mango Sticky Rice', 'Coconut Ice Cream'],
-            drinks: ['Thai Iced Tea', 'Coconut Shake'],
-            snack: ['Satay', 'Spring Rolls']
-          },
-          Mediterranean: {
-            main: ['Grilled Lamb', 'Falafel Wrap', 'Hummus Platter', 'Shawarma'],
-            dessert: ['Baklava', 'Rice Pudding'],
-            drinks: ['Turkish Coffee', 'Mint Tea'],
-            snack: ['Tabbouleh', 'Dolma']
-          },
-          Cafe: {
-            main: ['Club Sandwich', 'Avocado Toast', 'Quiche Lorraine'],
-            dessert: ['Cheesecake', 'Blueberry Muffin'],
-            drinks: ['Cappuccino', 'Cold Brew'],
-            snack: ['Bagel', 'Croissant']
-          },
-          Deli: {
-            main: ['Pastrami Sandwich', 'Reuben', 'BLT'],
-            dessert: ['Brownie', 'Cookie'],
-            drinks: ['Iced Tea', 'Soda'],
-            snack: ['Pickle', 'Chips']
-          }
-        };
-
-        const bucket = dishes[cuisine] || dishes['Cafe'];
-        const choices = bucket[category === 'main' ? 'main' : (category === 'dessert' ? 'dessert' : (category === 'drinks' ? 'drinks' : 'snack'))];
-        const base = choices[randInt(0, choices.length - 1)];
-        return simple(base) + ` (Budget ${i})`;
-      })();
-      const price = Number((Math.random() * 9 + 1).toFixed(2)); // 1 - 10
-      const tags = Array.from(new Set(["budget", ...pick(TAGS, randInt(0, 2))]));
-
-      menus.push({
-        restaurant: r._id,
-        name,
-        category,
-        price,
-        isSignature: Math.random() < 0.12,
-        description: faker.lorem.sentence() + ` Perfect for budget diners.`,
-        availability: Math.random() > 0.03,
-        ingredients: pick(['chicken','beef','pork','tofu','rice','noodles','cheese','tomato'], randInt(0,4)),
-        tags
-      });
-    }
-
-    // Regular menus
-    for (let i = 91; i <= 300; i++) {
-      const r = insertedRestaurants[randInt(0, insertedRestaurants.length - 1)];
-
-      const cuisine = r.cuisine || '';
-      const category = pick(["drinks", "main", "dessert", "snack"], 1)[0];
-
-      const name = (function makeDishName() {
-        const adjective = faker.word && typeof faker.word.adjective === 'function' ? faker.word.adjective() : faker.commerce.productAdjective();
-        const simple = (base) => `${adjective} ${base}`;
-
-        const dishes = {
-          Italian: {
-            main: ['Pesto Gnocchi', 'Seafood Linguine', 'Ravioli'],
-            dessert: ['Affogato', 'Cannoli'],
-            drinks: ['Italian Soda', 'Grappa'],
-            snack: ['Arancini', 'Antipasto']
-          },
-          Mexican: {
-            main: ['Fish Tacos', 'Tamale Plate', 'Pozole'],
-            dessert: ['Tres Leches', 'Sopapillas'],
-            drinks: ['Paloma', 'Mezcal'],
-            snack: ['Nachos', 'Taquitos']
-          },
-          Japanese: {
-            main: ['Udon Noodle Soup', 'Sushi Roll', 'Donburi'],
-            dessert: ['Green Tea Cake', 'Anmitsu'],
-            drinks: ['Soda Ramune', 'Sakura Tea'],
-            snack: ['Tempura', 'Edamame']
-          },
-          Indian: {
-            main: ['Paneer Tikka', 'Dhal Fry', 'Chicken Tikka Masala'],
-            dessert: ['Jalebi', 'Shrikhand'],
-            drinks: ['Lassi', 'Filter Coffee'],
-            snack: ['Vada', 'Bhel Puri']
-          },
-          Thai: {
-            main: ['Panang Curry', 'Pad See Ew', 'Thai Salad'],
-            dessert: ['Roti', 'Tapioca Pudding'],
-            drinks: ['Pandan Drink', 'Lemongrass Tea'],
-            snack: ['Crispy Tofu', 'Banana Fritters']
-          },
-          Mediterranean: {
-            main: ['Moussaka', 'Grilled Halloumi', 'Kebab Plate'],
-            dessert: ['Semolina Cake', 'Greek Yogurt with Honey'],
-            drinks: ['Ayran', 'Herbal Tea'],
-            snack: ['Pita with Dips', 'Olive Tapenade']
-          },
-          Cafe: {
-            main: ['Breakfast Burrito', 'Smoked Salmon Bagel', 'Panini'],
-            dessert: ['Lemon Tart', 'Scone'],
-            drinks: ['Flat White', 'Herbal Latte'],
-            snack: ['Granola', 'Pretzel']
-          },
-          Deli: {
-            main: ['Tuna Melt', 'Gyro Wrap', 'Corned Beef Sandwich'],
-            dessert: ['Fruit Cup', 'Rice Krispie'],
-            drinks: ['Fountain Soda', 'Iced Coffee'],
-            snack: ['Chips', 'Coleslaw']
-          }
-        };
-
-        const bucket = dishes[cuisine] || dishes['Cafe'];
-        const choices = bucket[category === 'main' ? 'main' : (category === 'dessert' ? 'dessert' : (category === 'drinks' ? 'drinks' : 'snack'))];
-        const base = choices[randInt(0, choices.length - 1)];
-        return simple(base) + ` (${i})`;
-      })();
-
-      const price = Number((Math.random() * 59 + 1).toFixed(2));
-      const tags = pick(TAGS, randInt(0, 3));
-
-      menus.push({
-        restaurant: r._id,
-        name,
-        category,
-        price,
-        isSignature: Math.random() < 0.12,
-        description: faker.lorem.sentence(),
-        availability: Math.random() > 0.05,
-        ingredients: pick(['chicken','beef','pork','tofu','rice','noodles','cheese','tomato','lettuce','onion'], randInt(0,4)),
-        tags
-      });
-    }
-
-    const insertedMenus = await Menu.insertMany(menus);
-
-    // Ensure each restaurant has at least one signature item
-    for (const rest of insertedRestaurants) {
-      const restMenus = insertedMenus.filter(m => m.restaurant.toString() === rest._id.toString());
-      const hasSignature = restMenus.some(m => m.isSignature);
-      if (!hasSignature && restMenus.length > 0) {
-        const pickMenu = restMenus[randInt(0, restMenus.length - 1)];
-        await Menu.updateOne({ _id: pickMenu._id }, { $set: { isSignature: true } });
-        // update local copy for any later logic
-        const idx = insertedMenus.findIndex(m => m._id.toString() === pickMenu._id.toString());
-        if (idx !== -1) insertedMenus[idx].isSignature = true;
+    const week = ["MON","TUE","WED","THU","FRI","SAT","SUN"]; 
+    const openingDocs = [];
+    for (const r of insertedRestaurants) {
+      // base open/close times — vary slightly by type
+      const baseOpen = r.type === 'cafe' ? '07:00' : '10:00';
+      const baseClose = r.type === 'pub' ? '01:00' : '22:00';
+      for (const d of week) {
+        // random chance closed on weekday (rare), more likely closed or shortened on SUN
+        const closedChance = d === 'SUN' ? 0.25 : 0.04;
+        if (Math.random() < closedChance) {
+          openingDocs.push({ restaurantId: r._id, dayOfWeek: d, openTime: null, closeTime: null });
+        } else {
+          // vary times by +/- up to 60 minutes
+          const openOffset = Math.floor((Math.random() - 0.5) * 60); // -30..+30
+          const closeOffset = Math.floor((Math.random() - 0.5) * 120); // -60..+60
+          const openTime = shiftTime(baseOpen, openOffset);
+          const closeTime = shiftTime(baseClose, closeOffset);
+          openingDocs.push({ restaurantId: r._id, dayOfWeek: d, openTime, closeTime });
+        }
       }
     }
+    if (openingDocs.length) await OpeningHours.insertMany(openingDocs);
 
-    // ----------------------
-    // Generate 100 Promotions
-    // ----------------------
-    const promotions = [];
-    const now = new Date();
+    const menusToInsert=[];
+    for(const r of insertedRestaurants){ menusToInsert.push({ restaurantId: r._id, name:'Main', description:`${r.cuisine||''} main dishes` }); menusToInsert.push({ restaurantId: r._id, name:'Drinks', description:'Beverages and drinks' }) }
+    const insertedMenus = await Menu.insertMany(menusToInsert);
 
-    for (let i = 1; i <= 100; i++) {
-      const r = insertedRestaurants[randInt(0, insertedRestaurants.length - 1)];
-      const menuPick =
-        Math.random() > 0.3
-          ? insertedMenus[randInt(0, insertedMenus.length - 1)]._id
-          : null;
+    const menuItems=[]; let budgetCount=0; const TARGET_ITEMS=350;
+    for(let i=0;i<TARGET_ITEMS;i++){
+      const menuDoc = insertedMenus[randInt(0, insertedMenus.length-1)];
+      // price distribution tied loosely to restaurant's tier
+      const rest = insertedRestaurants.find(r=>String(r._id)===String(menuDoc.restaurantId));
+      let basePrice;
+      if(rest && rest.priceTier==='BUDGET') basePrice = Number((Math.random()*7+2).toFixed(2));
+      else if(rest && rest.priceTier==='MID_RANGE') basePrice = Number((Math.random()*18+8).toFixed(2));
+      else if(rest && rest.priceTier==='PREMIUM') basePrice = Number((Math.random()*40+18).toFixed(2));
+      else basePrice = Number((Math.random()*150+40).toFixed(2));
+      // small chance of very cheap special
+      const price = Number((basePrice * (0.6 + Math.random()*1.4)).toFixed(2));
+      const dishName = faker.food && faker.food.dish ? faker.food.dish() : `${faker.commerce.productAdjective()} ${faker.commerce.product()}`;
+      const name = `${dishName}${Math.random()<0.1 ? ' (Chef\'s special)' : ''}`;
+      const isVeg = /tofu|vegetable|salad|vegetarian|vegan/i.test(name) || Math.random()<0.12;
+      const tagsForItem = [];
+      if(isVeg) tagsForItem.push('vegetarian');
+      if(Math.random()<0.15) tagsForItem.push('spicy');
+      if(Math.random()<0.1) tagsForItem.push('gluten-free');
+      const isSignature = Math.random() < 0.18; // ~18% signatures
+      menuItems.push({ menuId: menuDoc._id, restaurantId: menuDoc.restaurantId, name, description: faker.lorem.sentence(), price, type: Math.random()>0.65?'DRINK':'FOOD', isSignature, ingredients: pick(['chicken','beef','pork','tofu','rice','noodles','cheese','tomato','lettuce','onion','mushroom'], randInt(0,4)), tags: tagsForItem.concat(pick(TAGS, randInt(0,1))), availability: Math.random()>0.03 })
+    }
+    const insertedMenuItems = await MenuItem.insertMany(menuItems);
 
-      const discountPercent = randInt(5, 50);
-      const startDate = new Date(
-        now.getTime() + randInt(-7, 7) * 24 * 60 * 60 * 1000
-      );
-      const endDate = new Date(
-        startDate.getTime() + randInt(1, 30) * 24 * 60 * 60 * 1000
-      );
+    // Ensure each restaurant has at least one signature item
+    for(const rest of insertedRestaurants){ const hasSig = insertedMenuItems.some(m=>m.restaurantId.toString()===rest._id.toString() && m.isSignature); if(!hasSig){ const candidate = insertedMenuItems.find(m=>m.restaurantId.toString()===rest._id.toString()); if(candidate) await MenuItem.updateOne({_id:candidate._id}, {$set:{isSignature:true}}) }}
 
-      promotions.push({
-        restaurant: r._id,
-        menuItem: menuPick,
-        title: `Promo ${i}`,
-        description: `Save ${discountPercent}% at our place!`,
-        discountPercent,
-        startDate,
-        endDate,
-        conditions: "",
-        status: endDate > now ? "active" : "expired"
-      });
+    // Compute and update averageFoodPrice / averageDrinkPrice per restaurant
+    for(const rest of insertedRestaurants){
+      const items = insertedMenuItems.filter(m=>m.restaurantId.toString()===rest._id.toString());
+      const foods = items.filter(i=>i.type==='FOOD');
+      const drinks = items.filter(i=>i.type==='DRINK');
+      const avgFood = foods.length ? (foods.reduce((s,n)=>s+n.price,0)/foods.length) : null;
+      const avgDrink = drinks.length ? (drinks.reduce((s,n)=>s+n.price,0)/drinks.length) : null;
+      await Restaurant.updateOne({_id:rest._id}, {$set:{ averageFoodPrice: avgFood ? Number(avgFood.toFixed(2)) : null, averageDrinkPrice: avgDrink ? Number(avgDrink.toFixed(2)) : null }});
     }
 
+    const promotions=[]; const now=new Date(); const totalPromos=100;
+    for(let i=1;i<=totalPromos;i++){ const item = insertedMenuItems[randInt(0, insertedMenuItems.length-1)]; const discountPercent = randInt(5,50); const startDate = new Date(now.getTime()+randInt(-7,7)*24*60*60*1000); const endDate = new Date(startDate.getTime()+randInt(1,30)*24*60*60*1000); promotions.push({ restaurant: item.restaurantId, menuItem: item._id, title: `Promo ${i}`, description: `Save ${discountPercent}% at our place!`, discountPercent, startDate, endDate, conditions:'', status: endDate>now ? 'active' : 'expired' }) }
     const insertedPromos = await Promotion.insertMany(promotions);
 
-    console.log(
-      `✔ Inserted ${insertedRestaurants.length} restaurants, ${insertedMenus.length} menus, ${insertedPromos.length} promotions`
-    );
-
+    console.log(`✔ Inserted ${insertedRestaurants.length} restaurants, ${insertedMenus.length} menus, ${insertedMenuItems.length} menu_items, ${insertedPromos.length} promotions`);
     process.exit(0);
-
-  } catch (err) {
-    console.error("❌ Seeder error:", err);
-    process.exit(1);
-  }
+  }catch(err){ console.error('❌ Seeder error:', err); process.exit(1) }
 }
 
 seedAll();
