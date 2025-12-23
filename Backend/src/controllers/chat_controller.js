@@ -1,5 +1,5 @@
 // controllers/chat_controller.js
-import { handleChat } from "../services/chatbot_service.js";
+import { handleChat, handleChatWithSession } from "../services/chatbot_service.js";
 import crypto from "crypto";
 
 function generateSessionId() {
@@ -9,7 +9,7 @@ function generateSessionId() {
   return crypto.randomBytes(16).toString('hex');
 }
 
-// REST API handler for chat messages
+// REST API handler for chat messages (with session memory)
 export async function chatHandler(req, res) {
   try {
     const { message, sessionId: incomingSessionId } = req.body;
@@ -17,8 +17,8 @@ export async function chatHandler(req, res) {
 
     const sessionId = incomingSessionId || generateSessionId();
 
-    // ✅ handleChat now returns { detectedIntents, response }
-    const reply = await handleChat(message, sessionId);
+    // Use session-aware handler for multi-turn conversation support
+    const reply = await handleChatWithSession(message, sessionId);
 
     // Extract the response text
     const text = reply?.response ?? "";
@@ -26,7 +26,7 @@ export async function chatHandler(req, res) {
     // Send JSON including sessionId and detected intents if needed
     return res.json({
       response: text,
-      sessionId,
+      sessionId: reply?.sessionId || sessionId,
       detectedIntents: reply?.detectedIntents || null
     });
   } catch (err) {
